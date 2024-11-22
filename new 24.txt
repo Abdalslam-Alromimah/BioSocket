@@ -1,0 +1,1014 @@
+
+
+
+QT       += core gui network
+#QT += core network widgets
+
+greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
+
+CONFIG += c++17
+
+SOURCES += \
+    encryption.cpp \
+    main.cpp \
+    NetworkManager.cpp \
+    ChatController.cpp \
+    ClientWindow.cpp \
+    ServerWindow.cpp
+
+HEADERS += \
+    ChatStyle.h \
+    NetworkManager.h \
+    ChatController.h \
+    ClientWindow.h \
+    ServerWindow.h \
+    encryption.h
+# OpenSSL configuration
+win32 {
+    #OPENSSL_INCLUDE_PATH = E:\code\vcpkg\installed\x64-windows\include
+    #OPENSSL_LIB_PATH = E:\code\vcpkg\installed\x64-windows\lib
+
+    OPENSSL_PATH =E:\vcpkg\installed\x64-windows
+    INCLUDEPATH += $$OPENSSL_PATH/include
+    LIBS += -L$$OPENSSL_PATH/lib \
+            -llibssl \
+            -llibcrypto
+
+    CONFIG(debug, debug|release) {
+        DESTDIR = bin/debug
+    } else {
+        DESTDIR = bin/release
+    }
+
+   # openssl_dlls.path = $$DESTDIR
+    #openssl_dlls.files = \
+   #     $$OPENSSL_PATH/bin/libssl-3-x64.dll \
+   #     $$OPENSSL_PATH/bin/libcrypto-3-x64.dll
+   # COPIES += openssl_dlls
+}
+
+unix {
+    LIBS += -lssl -lcrypto
+}
+
+# Default rules for deployment.
+qnx: target.path = /tmp/$${TARGET}/bin
+else: unix:!android: target.path = /opt/$${TARGET}/bin
+!isEmpty(target.path): INSTALLS += target
+
+
+// ChatStyle.h
+#ifndef CHATSTYLE_H
+#define CHATSTYLE_H
+
+#include <QString>
+
+namespace ChatStyle {
+    const QString SAMSUNG_STYLE = R"(
+        QWidget {
+            background-color: #f2f2f2;
+            font-family: 'Segoe UI', Arial;
+        }
+
+        QLabel#titleLabel {
+            color: #000000;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 10px;
+            background-color: #ffffff;
+            border-radius: 15px;
+            margin: 5px;
+        }
+
+        QLabel#statusLabel {
+            color: #636363;
+            font-size: 13px;
+            padding: 5px;
+        }
+
+        QLabel#messageLabel {
+            background-color: #ffffff;
+            padding: 15px;
+            border-radius: 12px;
+            margin: 5px;
+            font-size: 14px;
+        }
+
+        QLineEdit {
+            background-color: #ffffff;
+            border: none;
+            border-radius: 20px;
+            padding: 12px 20px;
+            margin: 5px;
+            font-size: 14px;
+            min-height: 40px;
+        }
+
+        QLineEdit:focus {
+            border: 2px solid #1a73e8;
+        }
+
+        QPushButton {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            padding: 12px 25px;
+            font-size: 14px;
+            font-weight: bold;
+            min-height: 40px;
+        }
+
+        QPushButton:hover {
+            background-color: #1557b0;
+        }
+
+        QPushButton:pressed {
+            background-color: #0d47a1;
+        }
+
+        QFrame#messageFrame {
+            background-color: #ffffff;
+            border-radius: 15px;
+            margin: 10px;
+        }
+
+        QFrame#inputFrame {
+            background-color: #ffffff;
+            border-radius: 25px;
+            margin: 10px;
+            padding: 5px;
+        }
+    )";
+}
+
+#endif // CHATSTYLE_H
+
+
+// ChatController.h - Business logic layer
+#ifndef CHATCONTROLLER_H
+#define CHATCONTROLLER_H
+
+#include "NetworkManager.h"
+#include <QObject>
+
+class ChatController : public QObject {
+    Q_OBJECT
+public:
+    explicit ChatController(bool isServer, QObject *parent = nullptr);
+    void initialize();
+    void sendMessage(const QString& message);
+
+signals:
+    void messageReceived(const QString& message);
+    void connectionStatusChanged(const QString& status);
+
+private slots:
+    void handleReceivedMessage(const QString& message);
+    void handleConnectionEstablished();
+    void handleConnectionError(const QString& error);
+
+private:
+    NetworkManager* networkManager;
+    bool isServer;
+};
+#endif // SERVER_H
+
+
+
+// ChatController.cpp
+#include "ChatController.h"
+
+ChatController::ChatController(bool isServer, QObject *parent)
+    : QObject(parent), isServer(isServer) {
+    networkManager = new NetworkManager(this);
+
+    connect(networkManager, &NetworkManager::messageReceived,
+            this, &ChatController::handleReceivedMessage);
+    connect(networkManager, &NetworkManager::connectionEstablished,
+            this, &ChatController::handleConnectionEstablished);
+    connect(networkManager, &NetworkManager::connectionError,
+            this, &ChatController::handleConnectionError);
+}
+
+void ChatController::initialize() {
+    if (isServer) {
+        networkManager->startServer(1234);
+    } else {
+        networkManager->connectToServer("127.0.0.1", 1234);
+    }
+}
+
+void ChatController::sendMessage(const QString& message) {
+    networkManager->sendMessage(message);
+}
+
+void ChatController::handleReceivedMessage(const QString& message) {
+    emit messageReceived(message);
+}
+
+void ChatController::handleConnectionEstablished() {
+    emit connectionStatusChanged("Connected");
+}
+
+void ChatController::handleConnectionError(const QString& error) {
+    emit connectionStatusChanged("Error: " + error);
+}
+
+
+// ClientWindow.h - Add name property
+#ifndef CLIENTWINDOW_H
+#define CLIENTWINDOW_H
+
+#include "ChatController.h"
+#include <QWidget>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QLabel>
+#include <QVBoxLayout>
+
+
+class ClientWindow : public QWidget {
+    Q_OBJECT
+public:
+    explicit ClientWindow(const QString& name = "Client", QWidget *parent = nullptr);
+
+private slots:
+    void onSendClicked();
+    void updateMessages(const QString& message);
+    void updateStatus(const QString& status);
+
+private:
+    void setupUI();
+    void setupConnections();
+    void positionWindow();
+
+    ChatController* controller;
+    QLineEdit* messageInput;
+    QPushButton* sendButton;
+    QLabel* messageLabel;
+    QLabel* statusLabel;
+    QLabel* nameLabel;       // New: Label to show name
+    QString clientName;      // New: Store client name
+    QFrame* messageFrame;
+       QFrame* inputFrame;
+       QVBoxLayout* mainLayout;
+       QHBoxLayout* inputLayout;
+};
+#endif // CLIENTWINDOW_H
+
+
+#include "ClientWindow.h"
+#include <QVBoxLayout>
+#include <QApplication>
+#include <QScreen>
+#include <QFont>
+#include "ChatStyle.h"
+#include <QFrame>
+#include <QScrollArea>
+
+ClientWindow::ClientWindow(const QString& name, QWidget *parent)
+    : QWidget(parent), clientName(name) {
+    controller = new ChatController(false, this);
+    setupUI();
+    setupConnections();
+    positionWindow();
+    controller->initialize();
+}
+
+void ClientWindow::setupUI() {
+    setWindowTitle(clientName);
+    setMinimumSize(380, 600);
+
+    // Main layout
+    mainLayout = new QVBoxLayout(this);
+    mainLayout->setSpacing(0);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+
+    // Title area
+    nameLabel = new QLabel(clientName, this);
+    nameLabel->setObjectName("titleLabel");
+    nameLabel->setAlignment(Qt::AlignCenter);
+
+    // Status label
+    statusLabel = new QLabel("Connecting...", this);
+    statusLabel->setObjectName("statusLabel");
+    statusLabel->setAlignment(Qt::AlignCenter);
+
+    // Message display area
+    messageFrame = new QFrame(this);
+    messageFrame->setObjectName("messageFrame");
+    QVBoxLayout* messageLayout = new QVBoxLayout(messageFrame);
+    messageLabel = new QLabel(this);
+    messageLabel->setObjectName("messageLabel");
+    messageLabel->setWordWrap(true);
+    messageLayout->addWidget(messageLabel);
+
+    // Input area
+    inputFrame = new QFrame(this);
+    inputFrame->setObjectName("inputFrame");
+    inputLayout = new QHBoxLayout(inputFrame);
+    inputLayout->setSpacing(10);
+    inputLayout->setContentsMargins(10, 5, 10, 5);
+
+    messageInput = new QLineEdit(this);
+    messageInput->setPlaceholderText("Type a message...");
+
+    sendButton = new QPushButton(this);
+    sendButton->setIcon(QIcon(":/send.png")); // You'll need to add a send icon
+    sendButton->setFixedSize(40, 40);
+
+    inputLayout->addWidget(messageInput);
+    inputLayout->addWidget(sendButton);
+
+    // Add everything to main layout
+    mainLayout->addWidget(nameLabel);
+    mainLayout->addWidget(statusLabel);
+    mainLayout->addWidget(messageFrame);
+    mainLayout->addStretch();
+    mainLayout->addWidget(inputFrame);
+
+    // Apply Samsung style
+    setStyleSheet(ChatStyle::SAMSUNG_STYLE);
+}
+
+void ClientWindow::setupConnections() {
+    connect(sendButton, &QPushButton::clicked, this, &ClientWindow::onSendClicked);
+    connect(controller, &ChatController::messageReceived, this, &ClientWindow::updateMessages);
+    connect(controller, &ChatController::connectionStatusChanged, this, &ClientWindow::updateStatus);
+}
+
+void ClientWindow::positionWindow() {
+    QScreen *screen = QApplication::primaryScreen();
+    if (screen) {
+        QRect screenGeometry = screen->availableGeometry();
+        move(screenGeometry.left(), screenGeometry.top());
+    }
+}
+
+void ClientWindow::onSendClicked() {
+    if (!messageInput->text().isEmpty()) {
+        controller->sendMessage(messageInput->text());
+        messageInput->clear();
+    }
+}
+
+void ClientWindow::updateMessages(const QString& message) {
+    messageLabel->setText("Server: " + message);
+}
+
+void ClientWindow::updateStatus(const QString& status) {
+    statusLabel->setText(status);
+}
+
+
+// include/core/encryption.h
+#ifndef ENCRYPTION_H
+#define ENCRYPTION_H
+
+#include <vector>
+#include <string>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/aes.h>
+#include <openssl/rand.h>
+#include <openssl/evp.h>
+
+class Encryption {
+public:
+    Encryption();
+    ~Encryption();
+    
+    std::vector<unsigned char> generateAESKey();
+    std::vector<unsigned char> encryptAESKeyWithRSA(const std::vector<unsigned char>& aesKey);
+    std::vector<unsigned char> encryptMessageWithAES(const std::string& message, 
+                                                   const std::vector<unsigned char>& aesKey,
+                                                   std::vector<unsigned char>& iv);
+    std::vector<unsigned char> decryptAESKeyWithRSA(const std::vector<unsigned char>& encryptedKey);
+    std::string decryptMessageWithAES(const std::vector<unsigned char>& encryptedMessage,
+                                    const std::vector<unsigned char>& aesKey,
+                                    const std::vector<unsigned char>& iv);
+private:
+    void initializeOpenSSL();
+    void cleanupOpenSSL();
+};
+
+#endif // ENCRYPTION_H
+
+
+
+
+#include "encryption.h"
+#include <openssl/evp.h>
+#include <openssl/rsa.h>
+#include <openssl/pem.h>
+#include <openssl/err.h>
+#include <openssl/rand.h>
+#include <vector>
+#include <stdexcept>
+#include <cstdio>
+
+Encryption::Encryption() {
+    initializeOpenSSL();
+}
+
+Encryption::~Encryption() {
+    cleanupOpenSSL();
+}
+
+void Encryption::initializeOpenSSL() {
+    // Initialize OpenSSL
+    EVP_add_cipher(EVP_aes_256_cbc());
+    ERR_load_crypto_strings();
+    OpenSSL_add_all_algorithms();
+}
+
+void Encryption::cleanupOpenSSL() {
+    EVP_cleanup();
+    ERR_free_strings();
+    CRYPTO_cleanup_all_ex_data();
+}
+
+std::vector<unsigned char> Encryption::generateAESKey() {
+    std::vector<unsigned char> key(32); // 256-bit key
+    if (RAND_bytes(key.data(), key.size()) != 1) {
+        throw std::runtime_error("Failed to generate random AES key");
+    }
+    return key;
+}
+
+std::vector<unsigned char> Encryption::encryptAESKeyWithRSA(const std::vector<unsigned char>& aesKey) {
+    // Load public key from file (adjust the path accordingly)
+    const char* pubKeyPath = "E:\\BioSocket\\BioSocket\\rsa_public_key.pem";  // Adjust path as needed
+
+    BIO* pubKeyBio = BIO_new_file(pubKeyPath, "r");
+    if (!pubKeyBio) {
+        throw std::runtime_error("Could not open public key file");
+    }
+
+    // Read the public key from the BIO (this returns an EVP_PKEY object)
+    EVP_PKEY* evpPubKey = PEM_read_bio_PUBKEY(pubKeyBio, nullptr, nullptr, nullptr);
+    if (!evpPubKey) {
+        fprintf(stderr, "Error reading public key\n");
+        ERR_print_errors_fp(stderr);  // Print OpenSSL errors to stderr
+        BIO_free(pubKeyBio);  // Free BIO
+        throw std::runtime_error("Failed to read public key");
+    }
+
+    // Convert the EVP_PKEY to an RSA object
+    RSA* rsa = EVP_PKEY_get1_RSA(evpPubKey);
+    EVP_PKEY_free(evpPubKey);  // Free EVP_PKEY after extracting RSA key
+    BIO_free(pubKeyBio);  // Free the BIO
+
+    if (!rsa) {
+        throw std::runtime_error("Failed to convert EVP_PKEY to RSA");
+    }
+
+    // Allocate buffer for encrypted key
+    std::vector<unsigned char> encryptedKey(RSA_size(rsa));
+
+    // Encrypt the AES key with RSA
+    int encryptedLength = RSA_public_encrypt(
+        aesKey.size(),
+        aesKey.data(),
+        encryptedKey.data(),
+        rsa,
+        RSA_PKCS1_OAEP_PADDING
+    );
+
+    RSA_free(rsa);  // Free RSA object
+
+    if (encryptedLength == -1) {
+        throw std::runtime_error("RSA encryption failed");
+    }
+
+    encryptedKey.resize(encryptedLength);
+    return encryptedKey;
+}
+
+std::vector<unsigned char> Encryption::encryptMessageWithAES(
+    const std::string& message,
+    const std::vector<unsigned char>& aesKey,
+    std::vector<unsigned char>& iv
+) {
+    // Generate random IV
+    iv.resize(AES_BLOCK_SIZE);
+    if (RAND_bytes(iv.data(), AES_BLOCK_SIZE) != 1) {
+        throw std::runtime_error("Failed to generate IV");
+    }
+
+    // Create and initialize the context
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        throw std::runtime_error("Failed to create cipher context");
+    }
+
+    // Initialize encryption operation
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, aesKey.data(), iv.data()) != 1) {
+        EVP_CIPHER_CTX_free(ctx);
+        throw std::runtime_error("Failed to initialize encryption");
+    }
+
+    std::vector<unsigned char> encryptedMessage(message.size() + EVP_MAX_BLOCK_LENGTH);
+    int outLen1 = 0;
+    int outLen2 = 0;
+
+    // Encrypt message
+    if (EVP_EncryptUpdate(ctx,
+                         encryptedMessage.data(),
+                         &outLen1,
+                         reinterpret_cast<const unsigned char*>(message.data()),
+                         message.size()) != 1) {
+        EVP_CIPHER_CTX_free(ctx);
+        throw std::runtime_error("Failed to encrypt message");
+    }
+
+    // Finalize encryption
+    if (EVP_EncryptFinal_ex(ctx, encryptedMessage.data() + outLen1, &outLen2) != 1) {
+        EVP_CIPHER_CTX_free(ctx);
+        throw std::runtime_error("Failed to finalize encryption");
+    }
+
+    EVP_CIPHER_CTX_free(ctx);
+    encryptedMessage.resize(outLen1 + outLen2);
+    return encryptedMessage;
+}
+/*
+std::vector<unsigned char> Encryption::decryptAESKeyWithRSA(const std::vector<unsigned char>& encryptedKey) {
+    // Load private key from file (you should modify the path accordingly)
+    const char* prvKeyPath = "E:\\BioSocket\\BioSocket\\rsa_key.pem";  // Adjust path as needed
+    FILE* privKeyFile = fopen(prvKeyPath, "rb");
+
+    if (!privKeyFile) {
+        throw std::runtime_error("Could not open private key file");
+    }
+
+    RSA* rsa = PEM_read_RSAPrivateKey(privKeyFile, nullptr, nullptr, nullptr);
+    fclose(privKeyFile);
+
+    if (!rsa) {
+        throw std::runtime_error("Failed to load RSA private key");
+    }
+
+    // Allocate buffer for decrypted key
+    std::vector<unsigned char> decryptedKey(RSA_size(rsa));
+
+    // Decrypt AES key with RSA
+    int decryptedLength = RSA_private_decrypt(
+        encryptedKey.size(),
+        encryptedKey.data(),
+        decryptedKey.data(),
+        rsa,
+        RSA_PKCS1_OAEP_PADDING
+    );
+
+    RSA_free(rsa);
+
+    if (decryptedLength == -1) {
+        throw std::runtime_error("RSA decryption failed");
+    }
+
+    decryptedKey.resize(decryptedLength);
+    return decryptedKey;
+}
+*/
+std::vector<unsigned char> Encryption::decryptAESKeyWithRSA(const std::vector<unsigned char>& encryptedKey) {
+    // Load private key from file (adjust the path accordingly)
+    const char* prvKeyPath = "E:\\BioSocket\\BioSocket\\rsa_key.pem";  // Adjust path as needed
+
+    BIO* privKeyBio = BIO_new_file(prvKeyPath, "r");
+    if (!privKeyBio) {
+        throw std::runtime_error("Could not open private key file");
+    }
+
+    // Read the private key from the BIO (this returns an EVP_PKEY object)
+    EVP_PKEY* evpPrivKey = PEM_read_bio_PrivateKey(privKeyBio, nullptr, nullptr, nullptr);
+    if (!evpPrivKey) {
+        fprintf(stderr, "Error reading private key\n");
+        ERR_print_errors_fp(stderr);  // Print OpenSSL errors to stderr
+        BIO_free(privKeyBio);  // Free BIO
+        throw std::runtime_error("Failed to read private key");
+    }
+
+    // Convert the EVP_PKEY to an RSA object
+    RSA* rsa = EVP_PKEY_get1_RSA(evpPrivKey);
+    EVP_PKEY_free(evpPrivKey);  // Free EVP_PKEY after extracting RSA key
+    BIO_free(privKeyBio);  // Free the BIO
+
+    if (!rsa) {
+        throw std::runtime_error("Failed to convert EVP_PKEY to RSA");
+    }
+
+    // Allocate buffer for decrypted key
+    std::vector<unsigned char> decryptedKey(RSA_size(rsa));
+
+    // Decrypt AES key with RSA
+    int decryptedLength = RSA_private_decrypt(
+        encryptedKey.size(),
+        encryptedKey.data(),
+        decryptedKey.data(),
+        rsa,
+        RSA_PKCS1_OAEP_PADDING
+    );
+
+    RSA_free(rsa);  // Free RSA object
+
+    if (decryptedLength == -1) {
+        throw std::runtime_error("RSA decryption failed");
+    }
+
+    decryptedKey.resize(decryptedLength);
+    return decryptedKey;
+}
+
+
+std::string Encryption::decryptMessageWithAES(
+    const std::vector<unsigned char>& encryptedMessage,
+    const std::vector<unsigned char>& aesKey,
+    const std::vector<unsigned char>& iv
+) {
+    // Create and initialize the context
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        throw std::runtime_error("Failed to create cipher context");
+    }
+
+    // Initialize decryption operation
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, aesKey.data(), iv.data()) != 1) {
+        EVP_CIPHER_CTX_free(ctx);
+        throw std::runtime_error("Failed to initialize decryption");
+    }
+
+    std::vector<unsigned char> decryptedMessage(encryptedMessage.size() + EVP_MAX_BLOCK_LENGTH);
+    int outLen1 = 0;
+    int outLen2 = 0;
+
+    // Decrypt message
+    if (EVP_DecryptUpdate(ctx,
+                         decryptedMessage.data(),
+                         &outLen1,
+                         encryptedMessage.data(),
+                         encryptedMessage.size()) != 1) {
+        EVP_CIPHER_CTX_free(ctx);
+        throw std::runtime_error("Failed to decrypt message");
+    }
+    // Finalize decryption
+    if (EVP_DecryptFinal_ex(ctx, decryptedMessage.data() + outLen1, &outLen2) != 1) {
+        EVP_CIPHER_CTX_free(ctx);
+        throw std::runtime_error("Failed to finalize decryption");
+    }
+    EVP_CIPHER_CTX_free(ctx);
+    return std::string(reinterpret_cast<char*>(decryptedMessage.data()), outLen1 + outLen2);
+}
+
+
+#ifndef NETWORKMANAGER_H
+#define NETWORKMANAGER_H
+
+#include <QObject>
+#include <QTcpSocket>
+#include <QTcpServer>
+#include "encryption.h"
+#include <memory>
+
+class NetworkManager : public QObject {
+    Q_OBJECT
+public:
+    explicit NetworkManager(QObject *parent = nullptr);
+    void connectToServer(const QString& host, quint16 port);
+    void startServer(quint16 port);
+    void sendMessage(const QString& message);
+
+signals:
+    void messageReceived(const QString& message);
+    void connectionEstablished();
+    void connectionError(const QString& error);
+
+private slots:
+    void handleNewConnection();
+    void handleReadyRead();
+    void handleEncryptedConnection();
+
+private:
+    QTcpServer* tcpServer;
+    QTcpSocket* socket;
+    bool isServer;
+    std::unique_ptr<Encryption> encryption;
+    std::vector<unsigned char> aesKey;
+    std::vector<unsigned char> iv;
+    bool encryptionEstablished;
+
+    void setupEncryption();
+    void handleEncryptedMessage(const QByteArray& data);
+    QByteArray prepareEncryptedMessage(const QString& message);
+};
+
+#endif // NETWORKMANAGER_H
+
+
+
+//  NetworkManager.cpp
+#include "NetworkManager.h"
+#include <QDataStream>
+
+NetworkManager::NetworkManager(QObject *parent)
+    : QObject(parent), tcpServer(nullptr), socket(nullptr), isServer(false),
+      encryption(std::make_unique<Encryption>()), encryptionEstablished(false) {
+}
+
+void NetworkManager::connectToServer(const QString& host, quint16 port) {
+    socket = new QTcpSocket(this);
+
+    connect(socket, &QTcpSocket::connected, this, &NetworkManager::handleEncryptedConnection);
+    connect(socket, &QTcpSocket::readyRead, this, &NetworkManager::handleReadyRead);
+
+    socket->connectToHost(host, port);
+}
+
+void NetworkManager::startServer(quint16 port) {
+    isServer = true;
+    tcpServer = new QTcpServer(this);
+
+    if (!tcpServer->listen(QHostAddress::Any, port)) {
+        emit connectionError("Server failed to start");
+        return;
+    }
+
+    connect(tcpServer, &QTcpServer::newConnection, this, &NetworkManager::handleNewConnection);
+}
+
+void NetworkManager::handleNewConnection() {
+    socket = tcpServer->nextPendingConnection();
+    connect(socket, &QTcpSocket::readyRead, this, &NetworkManager::handleReadyRead);
+    setupEncryption();
+}
+
+void NetworkManager::setupEncryption() {
+    if (isServer) {
+        // Generate AES key and send it encrypted with RSA
+        aesKey = encryption->generateAESKey();
+        auto encryptedKey = encryption->encryptAESKeyWithRSA(aesKey);
+
+        QByteArray data;
+        QDataStream stream(&data, QIODevice::WriteOnly);
+        stream << static_cast<quint32>(encryptedKey.size());
+        data.append(QByteArray(reinterpret_cast<const char*>(encryptedKey.data()),
+                              encryptedKey.size()));
+
+        socket->write(data);
+        encryptionEstablished = true;
+        emit connectionEstablished();
+    }
+}
+
+void NetworkManager::handleEncryptedConnection() {
+    // Client waits for the encrypted AES key
+    if (!isServer) {
+        encryptionEstablished = false;
+        emit connectionEstablished();
+    }
+}
+
+void NetworkManager::handleReadyRead() {
+    if (!socket) return;
+
+    QByteArray data = socket->readAll();
+
+    if (!isServer && !encryptionEstablished) {
+        // Client receives the encrypted AES key
+        QDataStream stream(data);
+        quint32 keySize;
+        stream >> keySize;
+
+        QByteArray encryptedKeyData = data.mid(sizeof(quint32), keySize);
+        std::vector<unsigned char> encryptedKey(encryptedKeyData.begin(), encryptedKeyData.end());
+
+        try {
+            aesKey = encryption->decryptAESKeyWithRSA(encryptedKey);
+            encryptionEstablished = true;
+        } catch (const std::exception& e) {
+            emit connectionError(QString("Encryption error: ") + e.what());
+            return;
+        }
+    } else {
+        handleEncryptedMessage(data);
+    }
+}
+
+void NetworkManager::handleEncryptedMessage(const QByteArray& data) {
+    QDataStream stream(data);
+    quint32 ivSize, messageSize;
+    stream >> ivSize >> messageSize;
+
+    QByteArray ivData = data.mid(sizeof(quint32) * 2, ivSize);
+    QByteArray encryptedData = data.mid(sizeof(quint32) * 2 + ivSize, messageSize);
+
+    std::vector<unsigned char> iv(ivData.begin(), ivData.end());
+    std::vector<unsigned char> encryptedMessage(encryptedData.begin(), encryptedData.end());
+
+    try {
+        std::string decryptedMessage = encryption->decryptMessageWithAES(
+            encryptedMessage, aesKey, iv);
+        emit messageReceived(QString::fromStdString(decryptedMessage));
+    } catch (const std::exception& e) {
+        emit connectionError(QString("Decryption error: ") + e.what());
+    }
+}
+
+QByteArray NetworkManager::prepareEncryptedMessage(const QString& message) {
+    std::vector<unsigned char> iv;
+    std::vector<unsigned char> encryptedMessage = encryption->encryptMessageWithAES(
+        message.toStdString(), aesKey, iv);
+
+    QByteArray data;
+    QDataStream stream(&data, QIODevice::WriteOnly);
+
+    // Write IV size and IV
+    stream << static_cast<quint32>(iv.size());
+    // Write encrypted message size
+    stream << static_cast<quint32>(encryptedMessage.size());
+
+    // Append IV and encrypted message
+    data.append(QByteArray(reinterpret_cast<const char*>(iv.data()), iv.size()));
+    data.append(QByteArray(reinterpret_cast<const char*>(encryptedMessage.data()),
+                          encryptedMessage.size()));
+
+    return data;
+}
+
+void NetworkManager::sendMessage(const QString& message) {
+    if (!socket || !socket->isOpen() || !encryptionEstablished) return;
+
+    try {
+        QByteArray encryptedData = prepareEncryptedMessage(message);
+        socket->write(encryptedData);
+    } catch (const std::exception& e) {
+        emit connectionError(QString("Encryption error: ") + e.what());
+    }
+}
+
+
+
+// ServerWindow.h - Add name property
+#ifndef SERVERWINDOW_H
+#define SERVERWINDOW_H
+
+#include "ChatController.h"
+#include <QWidget>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QLabel>
+#include <QVBoxLayout>
+
+class ServerWindow : public QWidget {
+    Q_OBJECT
+public:
+    explicit ServerWindow(const QString& name = "Server", QWidget *parent = nullptr);
+
+private slots:
+    void onSendClicked();
+    void updateMessages(const QString& message);
+    void updateStatus(const QString& status);
+
+private:
+    void setupUI();
+    void setupConnections();
+    void positionWindow();
+
+    ChatController* controller;
+    QLineEdit* messageInput;
+    QPushButton* sendButton;
+    QLabel* messageLabel;
+    QLabel* statusLabel;
+    QLabel* nameLabel;       // New: Label to show name
+    QString serverName;      // New: Store server name
+    QVBoxLayout *mainLayout; // Declare the layout as a member variable
+    QHBoxLayout *inputLayout;    // Add this declaration for the input layout
+    QFrame *messageFrame;     // Declare the frame
+    QFrame *inputFrame;       // Add this declaration
+
+};
+#endif // SERVER_H
+
+
+#include "ServerWindow.h"
+#include <QVBoxLayout>
+#include <QApplication>
+#include <QScreen>
+#include <QFont>
+#include "ChatStyle.h"
+#include <QFrame>
+#include <QScrollArea>
+ServerWindow::ServerWindow(const QString& name, QWidget *parent)
+    : QWidget(parent), serverName(name) {
+    controller = new ChatController(true, this);
+    setupUI();
+    setupConnections();
+    positionWindow();
+    controller->initialize();
+}
+
+void ServerWindow::setupUI() {
+    setWindowTitle(serverName);
+    setMinimumSize(380, 600);
+
+    // Main layout
+    mainLayout = new QVBoxLayout(this);
+    mainLayout->setSpacing(0);
+    mainLayout->setContentsMargins(10, 10, 10, 10);
+
+    // Title area
+    nameLabel = new QLabel(serverName, this);
+    nameLabel->setObjectName("titleLabel");
+    nameLabel->setAlignment(Qt::AlignCenter);
+
+    // Status label
+    statusLabel = new QLabel("Starting server...", this);
+    statusLabel->setObjectName("statusLabel");
+    statusLabel->setAlignment(Qt::AlignCenter);
+
+    // Message display area
+    messageFrame = new QFrame(this);
+    messageFrame->setObjectName("messageFrame");
+    QVBoxLayout* messageLayout = new QVBoxLayout(messageFrame);
+    messageLabel = new QLabel(this);
+    messageLabel->setObjectName("messageLabel");
+    messageLabel->setWordWrap(true);
+    messageLayout->addWidget(messageLabel);
+
+    // Input area
+    inputFrame = new QFrame(this);
+    inputFrame->setObjectName("inputFrame");
+    inputLayout = new QHBoxLayout(inputFrame);
+    inputLayout->setSpacing(10);
+    inputLayout->setContentsMargins(10, 5, 10, 5);
+
+    messageInput = new QLineEdit(this);
+    messageInput->setPlaceholderText("Type a message...");
+
+    sendButton = new QPushButton(this);
+    sendButton->setIcon(QIcon(":/send.png")); // You'll need to add a send icon
+    sendButton->setFixedSize(40, 40);
+
+    inputLayout->addWidget(messageInput);
+    inputLayout->addWidget(sendButton);
+
+    // Add everything to main layout
+    mainLayout->addWidget(nameLabel);
+    mainLayout->addWidget(statusLabel);
+    mainLayout->addWidget(messageFrame);
+    mainLayout->addStretch();
+    mainLayout->addWidget(inputFrame);
+
+    // Apply Samsung style
+    setStyleSheet(ChatStyle::SAMSUNG_STYLE);
+}
+
+void ServerWindow::setupConnections() {
+    connect(sendButton, &QPushButton::clicked, this, &ServerWindow::onSendClicked);
+    connect(controller, &ChatController::messageReceived, this, &ServerWindow::updateMessages);
+    connect(controller, &ChatController::connectionStatusChanged, this, &ServerWindow::updateStatus);
+}
+
+void ServerWindow::positionWindow() {
+    QScreen *screen = QApplication::primaryScreen();
+    if (screen) {
+        QRect screenGeometry = screen->availableGeometry();
+        move(screenGeometry.right() - width(), screenGeometry.top());
+    }
+}
+
+void ServerWindow::onSendClicked() {
+    if (!messageInput->text().isEmpty()) {
+        controller->sendMessage(messageInput->text());
+        messageInput->clear();
+    }
+}
+
+void ServerWindow::updateMessages(const QString& message) {
+    messageLabel->setText("Client: " + message);
+}
+
+void ServerWindow::updateStatus(const QString& status) {
+    statusLabel->setText(status);
+}
+
+
+// main.cpp - Creating windows with names
+#include <QApplication>
+#include "ServerWindow.h"
+#include "ClientWindow.h"
+
+int main(int argc, char *argv[]) {
+    QApplication a(argc, argv);
+
+    ServerWindow server("Chat Server");
+    server.show();
+
+    ClientWindow client("Chat Client");
+    client.show();
+
+    return a.exec();
+}
+
+
